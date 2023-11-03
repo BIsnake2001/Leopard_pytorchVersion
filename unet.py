@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from torch.optim import Adam
-from FineTune.layers.focalloss import FocalLoss
 
 ss = 10
 
@@ -26,13 +25,12 @@ def dice_coef(y_true, y_pred):
  
 class LitUNetFT(pl.LightningModule):
 
-    def __init__(self, unet_finetune_model, finetune_config):
+    def __init__(self, unet_model):
         super().__init__()
-        self.unet_finetune_model = unet_finetune_model
-        self.finetune_config = finetune_config
+        self.unet_model = unet_model
 
-    def forward(self, dnase):
-        return self.unet_finetune_model.forward(dnase)
+    def forward(self, data):
+        return self.unet_model.forward(data)
 
 
     def training_step(self, batch, batch_idx):
