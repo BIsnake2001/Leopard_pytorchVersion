@@ -57,7 +57,6 @@ class UNet(pl.LightningModule):
     def __init__(self, lr=1e-1, num_class=2, num_channel=10, size=2048*25):
         super(UNet, self).__init__()
 
-        # Define the architecture here
         self.lr = lr
         num_blocks = 5
         initial_filter = 15
