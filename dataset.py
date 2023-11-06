@@ -118,6 +118,7 @@ class DatasetFromH5(Dataset):
         self.dict_id_to_chrom = {i:f"chr{i}" for i in range(1,23)}
         self.dict_id_to_chrom[24] = "chrX"
         self.dict_id_to_chrom[25] = "chrY"
+        self.length 
 
     def __len__(self):
         return min(self.regions.shape[0], self.max_num)
@@ -138,11 +139,11 @@ class DatasetFromH5(Dataset):
 
         length = signal_average.shape[1]
         if len(seq) < length:
-            print(signal_average.shape, "(",region_chrom, region[1], region[2],")", region[2]-region[1], len(seq))
+            # print(signal_average.shape, "(",region_chrom, region[1], region[2],")", region[2]-region[1], len(seq))
             seq = seq + "N" * (length - len(seq))
 
         elif len(seq) > length:
-            print(signal_average.shape, "(",region_chrom, region[1], region[2],")", region[2]-region[1], len(seq))
+            # print(signal_average.shape, "(",region_chrom, region[1], region[2],")", region[2]-region[1], len(seq))
             seq = seq[:length]
 
         seq_hot = seq_to_hot(seq.upper())
