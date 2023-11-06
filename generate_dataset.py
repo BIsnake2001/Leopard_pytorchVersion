@@ -20,7 +20,7 @@ def get_args():
 
     opt.add_argument("-n","--num", required=False, type=int, default=10000, help = "number of samples")
     opt.add_argument("-w","--window", required=False, type=int, default=1000, help = "window size")
-    opt.add_argument("--seed", required=False, type=int, default=1024, help = "random seed")
+    opt.add_argument("--seed", required=False, type=int, default=1, help = "random seed")
     opt.add_argument("-p", "--process", required=False, type=int, default=1, help = "number of processes")
 
     opt.add_argument("--odir", required=False, default=".", type=str, help = "output path")
@@ -79,19 +79,19 @@ def random_region(df_chromsize, chroms, num = 10000, size = 10240, seed = 1024):
 def process_region(chrom, start, end, df_peak_g, bwf_ave, bwf_feature, labels, values_ave, values_feature, regions, dict_chrom_to_id, i):
     df_region = df_peak_g.get_group(chrom).assign(
         start = lambda x: np.clip(x['start'] - start,0,args.window),
-        end = lambda x: np.clip(x['end'] - end,0,args.window)
+        end = lambda x: np.clip(x['end'] - start,0,args.window)
     ).query("start < end")
     for _, row in df_region.iterrows():
         labels[i, row['start']:row['end']] = 1
 
     df_blc = pd.read_csv('/shared/zhangyuxuan/data/annotation/merged_GRCh38_blacklist.bed', sep='\t', names=['chrom', 'start', 'end'])
-    df_blc = df_blc.groupby(['chrom'])
-    df_blc = df_blc.get_group(chrom).assign(
+    df_blc_g = df_blc.groupby(['chrom'])
+    df_blc_region = df_blc_g.get_group(chrom).assign(
         start = lambda x: np.clip(x['start'] - start,0,args.window),
         end = lambda x: np.clip(x['end'] - start,0,args.window)
     ).query("start < end")
     
-    for _, row in df_region.iterrows():
+    for _, row in df_blc_region.iterrows():
         labels[i, row['start']:row['end']] = -1
     
     region_ = np.array([dict_chrom_to_id[chrom], start, end])
