@@ -2,7 +2,6 @@ import pyBigWig
 import argparse
 import os
 import sys
-os.environ["CUDA_VISIBLE_DEVICES"]='0'
 import numpy as np
 import re
 from dataset import UNetDataModule
@@ -22,15 +21,17 @@ def get_args():
         help='validate cell type')
     parser.add_argument('-par', '--partition', default='1', type=str,
         help='chromasome parition')
-    parser.add_argument('-batchsize', '--batchsize', default=32, type=int,
+    parser.add_argument('-batchsize', '--batchsize', default=128, type=int,
         help='batch size')
-    parser.add_argument('-gpu', '--gpu', default=0, type=str,
+    parser.add_argument('-gpu', '--gpu', default="0", type=str,
         help='gpu to use')
     parser.add_argument('-name', '--name', default=None, type=str, help='Name of the run for TensorBoard logs')
+    parser.add_argument("-data", "--data", default="../data/", type=str, help="path to data folder")
     args = parser.parse_args()
     return args
 
 args=get_args()
+os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
 
 print(sys.argv)
 the_tf=args.transcription_factor
@@ -44,9 +45,9 @@ os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
 
 #############################################
 
-path_computer='../data/'
-path2=path_computer + 'dnase_bigwig/' # dnase
-path3=path_computer + 'chipseq_conservative_refine_bigwig/' # label
+path_computer=args.data
+path2=os.path.join(path_computer, 'dnase_bigwig/') # dnase
+path3=os.path.join(path_computer, 'chipseq_conservative_refine_bigwig/') # label
 
 
 # open bigwig
@@ -67,7 +68,7 @@ callback_checkoint = ModelCheckpoint(save_top_k = 3, monitor = "val_loss", mode 
 trainer = pl.Trainer(
     max_epochs=20, log_every_n_steps=1,
     limit_val_batches=30, val_check_interval=128,
-    accumulate_grad_batches=128, accelerator="gpu",
+    accumulate_grad_batches=1, accelerator="gpu",
     fast_dev_run=False, precision="bf16-mixed",strategy="auto",
     callbacks=[
         LearningRateMonitor(logging_interval="step"),

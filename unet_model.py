@@ -91,7 +91,8 @@ class UNet(pl.LightningModule):
         for i, block in enumerate(self.up_blocks):
             x = block(x, down_outputs[-(i + 2)])
 
-        x = torch.sigmoid(self.out_conv(x))
+        # x = torch.sigmoid(self.out_conv(x))
+        x = self.out_conv(x)
         return x
 
    

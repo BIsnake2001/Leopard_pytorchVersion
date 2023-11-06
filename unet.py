@@ -26,6 +26,36 @@ def dice_coef(y_true, y_prob):
     mask = y_true >= -0.5
     intersection = torch.sum(y_true * y_prob * mask)
     return (2. * intersection + ss) / (torch.sum(y_true * mask) + torch.sum(y_prob * mask) + ss)
+
+class BCEWithLogitsLossIgnore(nn.Module):
+    def __init__(self, ignore_index = -1):
+        super().__init__()
+        self.ignore_index = ignore_index
+        self.loss = nn.BCEWithLogitsLoss(reduction = 'none')
+    
+    def forward(self, y_true, y_prob):
+        mask = y_true != self.ignore_index
+        loss = self.loss(y_prob, y_true)
+        loss = loss[mask]
+        masked_loss = loss.mean()
+        return masked_loss
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+    
+    def forward(self, y_true, y_prob):
+        y_true = y_true.view(-1)
+        y_prob = y_prob.view(-1)
+        # y_prob = torch.clamp(y_prob, 1e-7, 1 - 1e-7)
+        mask = y_true >= -0.5
+        bce = -(y_true * torch.log(y_prob) + (1.0 - y_true) * torch.log(1.0 - y_prob))
+        loss = self.alpha * (1.0 - y_prob) ** self.gamma * bce
+        loss = loss[mask]
+        masked_loss = loss.mean()
+        return masked_loss
  
 class LitUNetFT(pl.LightningModule):
 
@@ -33,6 +63,7 @@ class LitUNetFT(pl.LightningModule):
         super().__init__()
         self.unet_model = UNet()
         self.lr = 1e-3
+        self.loss_function = BCEWithLogitsLossIgnore(ignore_index = -1)
 
     def forward(self, data):
         return self.unet_model.forward(data)
@@ -40,15 +71,17 @@ class LitUNetFT(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        y_prob = self.forward(x)
-        loss = crossentropy_cut(y, y_prob)
+        y_logit = self.forward(x)
+        # loss = crossentropy_cut(y, y_prob)
+        loss = self.loss_function(y_logit.view(-1), y.view(-1))
         self.log('train_loss', loss, on_step = True, on_epoch = True, prog_bar = True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        y_prob= self.forward(x)
-        loss = crossentropy_cut(y, y_prob)
+        y_logit= self.forward(x)
+        y_prob = torch.sigmoid(y_logit)
+        loss = self.loss_function(y_logit.view(-1), y.view(-1))
         dice_score = dice_coef(y, y_prob)
 
         self.log('val_loss', loss, on_step = True, on_epoch = True, prog_bar = True)
