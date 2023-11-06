@@ -30,6 +30,7 @@ def get_args():
     return opt.parse_args()
 
 def valid_args(args):
+    print(args.average)
     assert os.path.exists(args.average), "average bigwig not found"
     assert os.path.exists(args.feature), "feature bigwig not found"
     assert os.path.exists(args.label), "label bed not found"
@@ -70,7 +71,7 @@ def random_region(df_chromsize, chroms, num = 10000, size = 10240, seed = 1024):
     np.random.seed(seed)
     for i in range(num):
         chrom = np.random.choice(chroms, p = probs)
-        start = np.random.randint(0, df_chromsize[df_chromsize['chrom'] == chrom]['size'].values[0] - size - 1)
+        start = np.random.randint(0, df_chromsize[df_chromsize['chrom'] == chrom]['size'].values[0] - size - 10)
         end = start + size
         yield chrom, start, end
 
@@ -82,6 +83,16 @@ def process_region(chrom, start, end, df_peak_g, bwf_ave, bwf_feature, labels, v
     ).query("start < end")
     for _, row in df_region.iterrows():
         labels[i, row['start']:row['end']] = 1
+
+    df_blc = pd.read_csv('/shared/zhangyuxuan/data/annotation/merged_GRCh38_blacklist.bed', sep='\t', names=['chrom', 'start', 'end'])
+    df_blc = df_blc.groupby(['chrom'])
+    df_blc = df_blc.get_group(chrom).assign(
+        start = lambda x: np.clip(x['start'] - start,0,args.window),
+        end = lambda x: np.clip(x['end'] - end,0,args.window)
+    ).query("start < end")
+    
+    for _, row in df_region.iterrows():
+        labels[i, row['start']:row['end']] = -1
     
     region_ = np.array([dict_chrom_to_id[chrom], start, end])
     regions[i,:] = region_
