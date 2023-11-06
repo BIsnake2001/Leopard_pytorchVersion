@@ -118,7 +118,6 @@ class DatasetFromH5(Dataset):
         self.dict_id_to_chrom = {i:f"chr{i}" for i in range(1,23)}
         self.dict_id_to_chrom[24] = "chrX"
         self.dict_id_to_chrom[25] = "chrY"
-        self.length 
 
     def __len__(self):
         return min(self.regions.shape[0], self.max_num)

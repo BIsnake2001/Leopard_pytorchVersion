@@ -8,6 +8,8 @@ from torch.optim import AdamW
 from unet_model import UNet
 from sklearn.metrics import f1_score, matthews_corrcoef, precision_score, recall_score, roc_auc_score, average_precision_score
 
+import torchmetrics as tm
+
 ss = 10
 
 def crossentropy_cut(y_true, y_prob):
@@ -69,7 +71,8 @@ class LogTensorValues:
     def get_values(self, key):
         if key not in self.log_data:
             return None
-        return np.concatenate(self.log_data[key])
+        # return np.concatenate(self.log_data[key])
+        return torch.cat(self.log_data[key])
 
 
 class LitUNetFT(pl.LightningModule):
@@ -79,6 +82,14 @@ class LitUNetFT(pl.LightningModule):
         self.unet_model = UNet()
         self.lr = 1e-3
         self.loss_function = BCEWithLogitsLossIgnore(ignore_index = -1)
+        self.metric_precision = tm.Precision(task="binary")
+        self.metric_recall = tm.Recall(task="binary")
+        self.metric_mcc = tm.MatthewsCorrCoef(task="binary")
+        self.metric_f1 = tm.F1Score(task="binary")
+        self.metric_auroc = tm.AUROC(task="binary")
+        self.metric_auprc = tm.AveragePrecision(task="binary")
+        self.metric_acc = tm.Accuracy(task="binary")
+
 
     def forward(self, data):
         return self.unet_model.forward(data)
@@ -105,8 +116,8 @@ class LitUNetFT(pl.LightningModule):
         self.log('val_loss', loss, on_step = True, on_epoch = True, prog_bar = True)
         self.log('val_dice_coef', dice_score, on_step = True, on_epoch = True, prog_bar = True)
         y = y.view(-1)
-        y_prob = y_prob.view(-1).to(torch.float).cpu().numpy()
-        y_true = y.cpu().numpy()
+        y_prob = y_prob.view(-1)
+        y_true = y
         y_pred = (y_prob > 0.5)
         nonmask = y_true != -1
 
@@ -136,19 +147,29 @@ class LitUNetFT(pl.LightningModule):
         y_true = self.logger_values.get_values('y_true')
         y_pred = self.logger_values.get_values('y_pred')
         y_prob = self.logger_values.get_values('y_prob')
-        mp = precision_score(y_true, y_pred, zero_division = np.nan)
-        if not np.isnan(mp):
-            self.log('valid_precision', mp, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
-        mr = recall_score(y_true, y_pred, zero_division = np.nan)
-        if not np.isnan(mr):
+
+
+
+        self.log("valid_label_pos_frac", y_true.mean(), sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+        self.log("valid_pred_pos_frac", y_pred.float().mean(), sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+        self.log("valid_pred_prob_mean", y_prob.mean(), sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+
+        acc = self.metric_acc(y_prob,y_true)
+        self.log('valid_acc', acc, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+
+        if y_pred.sum() > 0:
+            mr = self.metric_recall(y_pred,y_true)
             self.log('valid_recall', mr, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
-        if (not np.isnan(mr)) or (not np.isnan(mp)):
-            self.log('valid_MCC', matthews_corrcoef(y_true, y_pred), sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
-            self.log('valid_F1', f1_score(y_true, y_pred, average = 'binary', zero_division = 0), sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+        if y_pred.sum() > 0 or y_true.sum() > 0:
+            self.log('valid_MCC', self.metric_mcc(y_pred,y_true), sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+            self.log('valid_F1', self.metric_f1(y_pred,y_true), sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
         if y_true.sum() > 0:
-            auroc = roc_auc_score(y_true, y_prob)
+            mp = self.metric_precision(y_prob,y_true)
+            self.log('valid_precision', mp, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+
+            auroc = self.metric_auroc(y_prob, y_true)
             self.log('valid_AUROC', auroc, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
-            auprc = average_precision_score(y_true, y_prob)
+            auprc = self.metric_auprc(y_prob, y_true)
             self.log('valid_AUPRC', auprc, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
         self.logger_values = None
         # self.trainer.datamodule.setup('val')

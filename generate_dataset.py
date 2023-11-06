@@ -88,7 +88,7 @@ def process_region(chrom, start, end, df_peak_g, bwf_ave, bwf_feature, labels, v
     df_blc = df_blc.groupby(['chrom'])
     df_blc = df_blc.get_group(chrom).assign(
         start = lambda x: np.clip(x['start'] - start,0,args.window),
-        end = lambda x: np.clip(x['end'] - end,0,args.window)
+        end = lambda x: np.clip(x['end'] - start,0,args.window)
     ).query("start < end")
     
     for _, row in df_region.iterrows():
