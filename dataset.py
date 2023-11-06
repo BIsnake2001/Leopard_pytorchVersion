@@ -5,6 +5,7 @@ from torch.utils.data import Dataset, DataLoader
 import lightning.pytorch as pl
 import numpy as np
 from pyfaidx import Fasta
+import h5py
 
 
 size=2**11*5 # 10240
@@ -61,7 +62,7 @@ def seq_to_hot(seq):
     seq = seq.upper()
 
     # Replace non-standard bases with 'N'
-    seq = re.sub('[BD-FH-SU-Z]', 'N', seq)
+    # seq = re.sub('[BD-FH-SU-Z]', 'N', seq)
 
     hot = np.array([encoding.get(base, [0, 0, 0, 0]) for base in seq], dtype='int').T
 
@@ -103,6 +104,85 @@ class UNetDataset(Dataset):
 
         return torch.tensor(image).float(), torch.tensor(label).float()
 
+
+class DatasetFromH5(Dataset):
+    def __init__(self, h5, fa, max_num) -> None:
+        self.h5 = h5
+
+        with h5py.File(h5, "r") as f:
+            self.regions = f["regions"][:]
+        self.max_num = max_num
+        self.dataset = None
+        self.file_fa = fa
+        self.fa = None
+        self.dict_id_to_chrom = {i:f"chr{i}" for i in range(1,23)}
+        self.dict_id_to_chrom[24] = "chrX"
+        self.dict_id_to_chrom[25] = "chrY"
+
+    def __len__(self):
+        return min(self.regions.shape[0], self.max_num)
+    
+    def __getitem__(self, index):
+        if self.dataset is None:
+            self.dataset = h5py.File(self.h5, "r")
+        if self.fa is None:
+            self.fa = Fasta(self.file_fa)
+
+        
+        region = self.regions[index]
+        signal_average = self.dataset["/values_ave"][index,:][None,:]
+        signal_featue = self.dataset["/values_feature"][index,:][None,:]
+
+        region_chrom = self.dict_id_to_chrom[region[0]]
+        seq = self.fa[region_chrom][region[1]:region[2]].seq.strip()
+
+        length = signal_average.shape[1]
+        if len(seq) < length:
+            print(signal_average.shape, "(",region_chrom, region[1], region[2],")", region[2]-region[1], len(seq))
+            seq = seq + "N" * (length - len(seq))
+
+        elif len(seq) > length:
+            print(signal_average.shape, "(",region_chrom, region[1], region[2],")", region[2]-region[1], len(seq))
+            seq = seq[:length]
+
+        seq_hot = seq_to_hot(seq.upper())
+        # print(seq_hot.shape)
+        inputs = np.concatenate((seq_hot, signal_average, signal_featue), axis = 0)
+
+        label = self.dataset["/labels"][index,:]
+
+        o = {
+            "inputs": torch.tensor(inputs).float(),
+            "label": torch.tensor(label).float()
+        }
+        return o 
+
+
+class DataModuleFromH5(pl.LightningDataModule):
+    def __init__(self, fa, h5_train, h5_vali, h5_test, max_num, batch_size = 128, num_workers = 8) -> None:
+        super().__init__()
+        self.fa = fa
+        self.h5_train = h5_train
+        self.h5_vali = h5_vali
+        self.h5_test = h5_test
+        self.max_num = max_num
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+
+    def setup(self, stage=None):
+        self.train_dataset = DatasetFromH5(self.h5_train, self.fa, self.max_num)
+        self.vali_dataset = DatasetFromH5(self.h5_vali, self.fa, self.max_num)
+        self.test_dataset = DatasetFromH5(self.h5_test, self.fa, self.max_num)
+
+    def train_dataloader(self):
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=True)
+    
+    def val_dataloader(self):
+        return DataLoader(self.vali_dataset, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=True)
+    
+    def test_dataloader(self):
+        return DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=True)
+    
 class UNetDataModule(pl.LightningDataModule):
     def __init__(self, batch_size, par, feature_train, label_train, feature_vali, label_vali, feature_avg):
         super().__init__()

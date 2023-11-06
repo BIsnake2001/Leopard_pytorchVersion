@@ -56,7 +56,22 @@ class FocalLoss(nn.Module):
         loss = loss[mask]
         masked_loss = loss.mean()
         return masked_loss
- 
+
+class LogTensorValues:
+    def __init__(self):
+        self.log_data = {}
+
+    def log(self, key, values):
+        if key not in self.log_data:
+            self.log_data[key] = []
+        self.log_data[key].append(values.reshape(-1).squeeze())
+
+    def get_values(self, key):
+        if key not in self.log_data:
+            return None
+        return np.concatenate(self.log_data[key])
+
+
 class LitUNetFT(pl.LightningModule):
 
     def __init__(self):
@@ -70,15 +85,18 @@ class LitUNetFT(pl.LightningModule):
 
 
     def training_step(self, batch, batch_idx):
-        x, y = batch
+        x, y = batch["inputs"], batch["label"]
         y_logit = self.forward(x)
         # loss = crossentropy_cut(y, y_prob)
         loss = self.loss_function(y_logit.view(-1), y.view(-1))
         self.log('train_loss', loss, on_step = True, on_epoch = True, prog_bar = True)
         return loss
+    
+    def on_validation_epoch_start(self):
+        self.logger_values = LogTensorValues()
 
     def validation_step(self, batch, batch_idx):
-        x, y = batch
+        x, y = batch["inputs"], batch["label"]
         y_logit= self.forward(x)
         y_prob = torch.sigmoid(y_logit)
         loss = self.loss_function(y_logit.view(-1), y.view(-1))
@@ -87,26 +105,55 @@ class LitUNetFT(pl.LightningModule):
         self.log('val_loss', loss, on_step = True, on_epoch = True, prog_bar = True)
         self.log('val_dice_coef', dice_score, on_step = True, on_epoch = True, prog_bar = True)
         y = y.view(-1)
-        y_prob = y_prob.view(-1)
+        y_prob = y_prob.view(-1).to(torch.float).cpu().numpy()
         y_true = y.cpu().numpy()
-        y_pred = (y_prob > 0.5).cpu().numpy()
+        y_pred = (y_prob > 0.5)
         nonmask = y_true != -1
-        y_true = y_true[nonmask]
-        y_pred = y_pred[nonmask]
+
+        self.logger_values.log('y_true', y_true[nonmask])
+        self.logger_values.log('y_pred', y_pred[nonmask])
+        self.logger_values.log('y_prob', y_prob[nonmask])
+        # y_true = y_true[nonmask]
+        # y_pred = y_pred[nonmask]
         
-        f1 = f1_score(y_true, y_pred, average = 'binary')
-        mcc = matthews_corrcoef(y_true, y_pred)
-        pre = precision_score(y_true, y_pred, zero_division = np.nan)
-        recall = recall_score(y_true, y_pred, zero_division = np.nan)
-        if (not np.isnan(pre)) or (not np.isnan(recall)):
-            self.log('valid_F1', f1, on_step = True, on_epoch = True, prog_bar = True)
-            self.log('valid_MCC', mcc, on_step = True, on_epoch = True, prog_bar = True)
-        if not np.isnan(pre):
-            self.log('valid_precision', pre, on_step = True, on_epoch = True, prog_bar = True)
-        if not np.isnan(recall):
-            self.log('valid_recall', recall, on_step = True, on_epoch = True, prog_bar = True)
+
+        # pre = precision_score(y_true, y_pred, zero_division = np.nan)
+        # recall = recall_score(y_true, y_pred, zero_division = np.nan)
+
+        # if not np.isnan(pre):
+        #     self.log('valid_precision', pre, on_step = False, on_epoch = True, prog_bar = True)
+        # if not np.isnan(recall):
+        #     self.log('valid_recall', recall, on_step = False, on_epoch = True, prog_bar = True)
+
+        # if (not np.isnan(pre)) or (not np.isnan(recall)):
+        #     f1 = f1_score(y_true, y_pred, average = 'binary')
+        #     mcc = matthews_corrcoef(y_true, y_pred)
+        #     self.log('valid_F1', f1, on_step = False, on_epoch = True, prog_bar = True)
+        #     self.log('valid_MCC', mcc, on_step = False, on_epoch = True, prog_bar = True)
         return loss
-    
+            
+    def on_validation_epoch_end(self):
+        y_true = self.logger_values.get_values('y_true')
+        y_pred = self.logger_values.get_values('y_pred')
+        y_prob = self.logger_values.get_values('y_prob')
+        mp = precision_score(y_true, y_pred, zero_division = np.nan)
+        if not np.isnan(mp):
+            self.log('valid_precision', mp, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+        mr = recall_score(y_true, y_pred, zero_division = np.nan)
+        if not np.isnan(mr):
+            self.log('valid_recall', mr, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+        if (not np.isnan(mr)) or (not np.isnan(mp)):
+            self.log('valid_MCC', matthews_corrcoef(y_true, y_pred), sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+            self.log('valid_F1', f1_score(y_true, y_pred, average = 'binary', zero_division = 0), sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+        if y_true.sum() > 0:
+            auroc = roc_auc_score(y_true, y_prob)
+            self.log('valid_AUROC', auroc, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+            auprc = average_precision_score(y_true, y_prob)
+            self.log('valid_AUPRC', auprc, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
+        self.logger_values = None
+        # self.trainer.datamodule.setup('val')
+        return None
+
     def configure_optimizers(self):
         optimizer = AdamW(self.parameters(), lr=self.lr, betas=(0.9, 0.999), weight_decay=1e-5)
 

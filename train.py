@@ -1,82 +1,81 @@
-import pyBigWig
-import argparse
+
 import os
 import sys
 import numpy as np
-import re
-from dataset import UNetDataModule
+import pyBigWig
+import argparse
+
 from unet import LitUNetFT
 import lightning.pytorch as pl
-from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
+from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, EarlyStopping
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-
+from dataset import DatasetFromH5, DataModuleFromH5
 
 def get_args():
     parser = argparse.ArgumentParser(description="train")
-    parser.add_argument('-tf', '--transcription_factor', default='CTCF', type=str,
+    parser.add_argument('-f', '--factor', default='CTCF', type=str,
         help='transcript factor')
-    parser.add_argument('-tr', '--train', default='K562', type=str,
+    parser.add_argument('-t', '--train', default='K562', type=str,
         help='train cell type')
-    parser.add_argument('-vali', '--validate', default='A549', type=str,
+    parser.add_argument('-v', '--valid', default='A549', type=str,
         help='validate cell type')
-    parser.add_argument('-par', '--partition', default='1', type=str,
-        help='chromasome parition')
-    parser.add_argument('-batchsize', '--batchsize', default=128, type=int,
+    parser.add_argument('-d', '--data', default=".", type=str,
+        help='where to find the data')
+    parser.add_argument('-b', '--batchsize', default=128, type=int,
         help='batch size')
     parser.add_argument('-gpu', '--gpu', default="0", type=str,
         help='gpu to use')
-    parser.add_argument('-name', '--name', default=None, type=str, help='Name of the run for TensorBoard logs')
-    parser.add_argument("-data", "--data", default="../data/", type=str, help="path to data folder")
+    parser.add_argument("--fa",default="/shared/zhangyuxuan/data/annotation/hg38.fa",type=str,help="path to fasta file")
+    parser.add_argument("--num_workers", default=4, type=int, help="number of workers")
+
     args = parser.parse_args()
     return args
 
-args=get_args()
-os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
+def valid_args(args):
+    
+    train_path = os.path.join(args.data, args.factor, args.train, "train.h5")
+    assert os.path.exists(train_path), f"train data not found at {train_path}"
+    val_path = os.path.join(args.data, args.factor, args.valid, "val.h5")
+    assert os.path.exists(val_path), f"val data not found at {val_path}"
+    assert args.batchsize > 0, f"batchsize must be positive, got {args.batchsize}"
 
-print(sys.argv)
-the_tf=args.transcription_factor
-cell_train=args.train
-cell_vali=args.validate
-par=args.partition
-batch_size = args.batchsize
-os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
+    args.train_path = train_path
+    args.val_path = val_path
+    args.name = f"{args.factor}_{args.train}_{args.valid}"
+    os.environ["CUDA_VISIBLE_DEVICES"]=args.gpu
 
-## random seed for chr partition
+    return args
 
-#############################################
+if __name__=="__main__": 
+    args = valid_args(get_args())
+    data_module = DataModuleFromH5(
+        args.fa,
+        args.train_path, 
+        args.val_path, 
+        args.val_path, # ignore test dataset
+        batch_size = args.batchsize,
+        max_num=100_000,
+        num_workers=args.num_workers,
+        )
+    model = LitUNetFT()
+    # configure trainer
+    callback_checkoint = ModelCheckpoint(save_top_k = 3, monitor = "val_loss", mode = "min", filename = "{epoch}-{step}-{valid_loss:.4f}", save_last = True,every_n_epochs=1,save_weights_only = True)
+    trainer = pl.Trainer(
+        max_epochs=20, log_every_n_steps=1,
+        limit_val_batches=64, val_check_interval=128,
+        accumulate_grad_batches=1, accelerator="gpu",
+        fast_dev_run=False, precision="bf16-mixed",strategy="auto",
+        callbacks=[
+            LearningRateMonitor(logging_interval="step"),
+            callback_checkoint,
+            EarlyStopping(monitor="val_loss", patience=3, mode="min", check_on_train_epoch_end=True)
+        ],
+        logger=pl.loggers.TensorBoardLogger("lightning_logs", name=args.name),
+        )
+    print('3. training begins')
 
-path_computer=args.data
-path2=os.path.join(path_computer, 'dnase_bigwig/') # dnase
-path3=os.path.join(path_computer, 'chipseq_conservative_refine_bigwig/') # label
-
-
-# open bigwig
-feature_avg=pyBigWig.open(path2 + 'avg.bigwig')
-feature_train=pyBigWig.open(path2 + cell_train + '.bigwig')
-feature_vali=pyBigWig.open(path2 + cell_vali + '.bigwig')
-label_train=np.load(path3 + cell_train + '_' + the_tf + '.npy')
-label_vali=np.load(path3 + cell_vali + '_' + the_tf + '.npy')
-############
-
-data_module = UNetDataModule(batch_size, par, feature_train, label_train, feature_vali, label_vali, feature_avg)
-data_module.setup()
-model = LitUNetFT()
-
-
-# configure trainer
-callback_checkoint = ModelCheckpoint(save_top_k = 3, monitor = "val_loss", mode = "min", filename = "{epoch}-{step}-{valid_loss:.4f}", save_last = True,every_n_epochs=1,save_weights_only = True)
-trainer = pl.Trainer(
-    max_epochs=20, log_every_n_steps=1,
-    limit_val_batches=30, val_check_interval=128,
-    accumulate_grad_batches=1, accelerator="gpu",
-    fast_dev_run=False, precision="bf16-mixed",strategy="auto",
-    callbacks=[
-        LearningRateMonitor(logging_interval="step"),
-        callback_checkoint,
-    ],
-    logger=pl.loggers.TensorBoardLogger("lightning_logs", name=args.name),
+    trainer.fit(
+        model, data_module
     )
-print('3. training begins')
-trainer.fit(
-    model, data_module
-)
+
