@@ -33,9 +33,9 @@ class BCEWithLogitsLossIgnore(nn.Module):
         self.ignore_index = ignore_index
         self.loss = nn.BCEWithLogitsLoss(reduction = 'none')
     
-    def forward(self, y_true, y_prob):
+    def forward(self, y_logit, y_true):
         mask = y_true != self.ignore_index
-        loss = self.loss(y_prob, y_true)
+        loss = self.loss(y_logit, y_true)
         loss = loss[mask]
         masked_loss = loss.mean()
         return masked_loss
