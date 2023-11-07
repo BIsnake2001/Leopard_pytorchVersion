@@ -16,7 +16,7 @@ def get_args():
     opt.add_argument("-a","--average", required=True, type=str, help = "path of average dnase bigwig")
     opt.add_argument("-b","--feature", required=True, type=str, help = "path of feature dnase bigwig")
     opt.add_argument("--blacklist", required=True, type=str, help = "path of blacklist")
-    opt.add_argument("--ignore", required=True, type=str, help = "path of relaxed region")
+    opt.add_argument("--ignore", required=False,default = None, type=str, help = "path of relaxed region")
     opt.add_argument("-l","--label", required=True, type=str, help = "path of label bed (e.g narrowPeak)")
     opt.add_argument("--chrom", required = True, default=[], action='append', help = "chromosome to use")
 
@@ -81,12 +81,13 @@ def random_region(df_chromsize, chroms, num = 10000, size = 10240, seed = 1024):
 
 def process_region(chrom, start, end, df_peak_g, df_blc_g, df_ign_g, bwf_ave, bwf_feature, labels, values_ave, values_feature, regions, dict_chrom_to_id, i):
 
-    df_ign_region = df_ign_g.get_group(chrom).assign(
-        start = lambda x: np.clip(x['start'] - start,0,args.window),
-        end = lambda x: np.clip(x['end'] - start,0,args.window)
-    ).query("start < end")
-    for _, row in df_ign_region.iterrows():
-        labels[i, row['start']:row['end']] = -1
+    if df_ign_g is not None:
+        df_ign_region = df_ign_g.get_group(chrom).assign(
+            start = lambda x: np.clip(x['start'] - start,0,args.window),
+            end = lambda x: np.clip(x['end'] - start,0,args.window)
+        ).query("start < end")
+        for _, row in df_ign_region.iterrows():
+            labels[i, row['start']:row['end']] = -1
 
     df_region = df_peak_g.get_group(chrom).assign(
         start = lambda x: np.clip(x['start'] - start,0,args.window),
@@ -124,8 +125,11 @@ if __name__ == "__main__":
     df_blc = pd.read_csv(args.blacklist, sep = '\t', header=None, names=['chrom', 'start', 'end'])
     df_blc_g = df_blc.sort_values(["chrom","start","end"]).groupby("chrom")
 
-    df_ign = pd.read_csv(args.ignore, sep = '\t', header=None, names=['chrom', 'start', 'end'])
-    df_ign_g = df_ign.sort_values(["chrom","start","end"]).groupby("chrom")
+    if args.ignore is not None:
+        df_ign = pd.read_csv(args.ignore, sep = '\t', header=None, names=['chrom', 'start', 'end'])
+        df_ign_g = df_ign.sort_values(["chrom","start","end"]).groupby("chrom")
+    else:
+        df_ign_g = None
 
     bwf_ave = pyBigWig.open(args.average)
     bwf_feature = pyBigWig.open(args.feature)
