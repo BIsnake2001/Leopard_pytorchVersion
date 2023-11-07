@@ -82,6 +82,7 @@ class LitUNetFT(pl.LightningModule):
         self.unet_model = UNet()
         self.lr = 1e-3
         self.loss_function = BCEWithLogitsLossIgnore(ignore_index = -1)
+
         self.metric_precision = tm.Precision(task="binary")
         self.metric_recall = tm.Recall(task="binary")
         self.metric_mcc = tm.MatthewsCorrCoef(task="binary")
@@ -167,12 +168,21 @@ class LitUNetFT(pl.LightningModule):
             mp = self.metric_precision(y_prob,y_true)
             self.log('valid_precision', mp, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
 
-            auroc = self.metric_auroc(y_prob, y_true)
+            auroc = self.metric_auroc(y_prob, y_true.to(torch.int))
             self.log('valid_AUROC', auroc, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
-            auprc = self.metric_auprc(y_prob, y_true)
+            auprc = self.metric_auprc(y_prob, y_true.to(torch.int))
             self.log('valid_AUPRC', auprc, sync_dist = False, on_step = False, on_epoch = True, prog_bar = True, batch_size = y_true.shape[0])
         self.logger_values = None
         # self.trainer.datamodule.setup('val')
+
+        self.metric_acc.reset()
+        self.metric_precision.reset()
+        self.metric_recall.reset()
+        self.metric_mcc.reset()
+        self.metric_f1.reset()
+        self.metric_auroc.reset()
+        self.metric_auprc.reset()
+
         return None
 
     def configure_optimizers(self):

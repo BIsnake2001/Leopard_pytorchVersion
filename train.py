@@ -62,8 +62,8 @@ if __name__=="__main__":
     # configure trainer
     callback_checkoint = ModelCheckpoint(save_top_k = 3, monitor = "val_loss", mode = "min", filename = "{epoch}-{step}-{valid_loss:.4f}", save_last = True,every_n_epochs=1,save_weights_only = True)
     trainer = pl.Trainer(
-        max_epochs=20, log_every_n_steps=1, limit_train_batches= 100_000,
-        limit_val_batches=128, val_check_interval=128,
+        max_epochs=20, log_every_n_steps=1, limit_train_batches= 100_000//args.batchsize,
+        limit_val_batches= 128, val_check_interval=128,
         accumulate_grad_batches=1, accelerator="gpu",
         fast_dev_run=False, precision="bf16-mixed",strategy="auto",
         callbacks=[
