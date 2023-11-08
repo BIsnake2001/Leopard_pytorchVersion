@@ -69,14 +69,19 @@ class UNet(pl.LightningModule):
         self.input_conv = UNetBlock(num_channel, initial_filter, size_kernel, activation, padding)
 
         self.down_blocks = nn.ModuleList()
+        upfilters = []
         num_filters = initial_filter
+        upfilters.append(num_filters)
         for i in range(num_blocks):
             self.down_blocks.append(PCC(num_filters, int(num_filters*scale_filter), size_kernel, activation, padding))
             num_filters = int(num_filters*scale_filter)
+            upfilters.append(num_filters)
+
+        upfilters = upfilters[:-1]
 
         self.up_blocks = nn.ModuleList()
         for i in range(num_blocks):
-            self.up_blocks.append(UCC(num_filters, int(num_filters // scale_filter)+1, int(num_filters // scale_filter), size_kernel, activation, padding))
+            self.up_blocks.append(UCC(num_filters, upfilters[-i], int(num_filters // scale_filter), size_kernel, activation, padding))
             num_filters = int(num_filters // scale_filter)
         self.out_conv = nn.Conv1d(int(num_filters), num_class, 1)
 
@@ -110,14 +115,19 @@ class UNet_200(pl.LightningModule):
         self.input_conv = UNetBlock(num_channel, initial_filter, size_kernel, activation, padding)
 
         self.down_blocks = nn.ModuleList()
+        upfilters = []
         num_filters = initial_filter
+        upfilters.append(num_filters)
         for i in range(num_blocks):
             self.down_blocks.append(PCC(num_filters, int(num_filters*scale_filter), size_kernel, activation, padding))
             num_filters = int(num_filters*scale_filter)
+            upfilters.append(num_filters)
+
+        upfilters = upfilters[:-1]
 
         self.up_blocks = nn.ModuleList()
         for i in range(num_blocks):
-            self.up_blocks.append(UCC(num_filters, int(num_filters // scale_filter)+1, int(num_filters // scale_filter), size_kernel, activation, padding))
+            self.up_blocks.append(UCC(num_filters, upfilters[-i], int(num_filters // scale_filter), size_kernel, activation, padding))
             num_filters = int(num_filters // scale_filter)
 
         self.pools = nn.ModuleList([
