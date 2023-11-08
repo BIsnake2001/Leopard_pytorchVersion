@@ -95,4 +95,54 @@ class UNet(pl.LightningModule):
         x = self.out_conv(x)
         return x
 
-   
+
+class UNet_200(pl.LightningModule):
+    def __init__(self, lr=1e-1, num_class=1, num_channel=6, size=12800):
+        super().__init__()
+
+        num_blocks = 5
+        initial_filter = 15
+        scale_filter = 1.5
+        size_kernel = 7
+        activation = 'relu'
+        padding = 'same'
+
+        self.input_conv = UNetBlock(num_channel, initial_filter, size_kernel, activation, padding)
+
+        self.down_blocks = nn.ModuleList()
+        num_filters = initial_filter
+        for i in range(num_blocks):
+            self.down_blocks.append(PCC(num_filters, int(num_filters*scale_filter), size_kernel, activation, padding))
+            num_filters = int(num_filters*scale_filter)
+
+        self.up_blocks = nn.ModuleList()
+        for i in range(num_blocks):
+            self.up_blocks.append(UCC(num_filters, int(num_filters // scale_filter)+1, int(num_filters // scale_filter), size_kernel, activation, padding))
+            num_filters = int(num_filters // scale_filter)
+
+        self.pools = nn.ModuleList([
+            nn.MaxPool1d(5),
+            nn.MaxPool1d(5),
+            nn.MaxPool1d(2),
+            nn.MaxPool1d(2),
+            nn.MaxPool1d(2),
+        ])
+        self.out_conv = nn.Conv1d(int(num_filters), num_class, 1)
+
+
+    def forward(self, x):
+        # Forward pass
+        x = self.input_conv(x)
+
+        down_outputs = [x]
+        for block in self.down_blocks:
+            x = block(x)
+            down_outputs.append(x)
+        for i, block in enumerate(self.up_blocks):
+            x = block(x, down_outputs[-(i + 2)])
+
+        for pool in self.pools:
+            x = pool(x)
+        # x = torch.sigmoid(self.out_conv(x))
+        x = self.out_conv(x)
+        return x

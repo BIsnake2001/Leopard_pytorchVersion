@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import lightning.pytorch as pl
 from torch.optim.lr_scheduler import MultiStepLR
 from torch.optim import AdamW
-from unet_model import UNet
+from unet_model import UNet, UNet_200
 from sklearn.metrics import f1_score, matthews_corrcoef, precision_score, recall_score, roc_auc_score, average_precision_score
 
 import torchmetrics as tm
@@ -77,9 +77,15 @@ class LogTensorValues:
 
 class LitUNetFT(pl.LightningModule):
 
-    def __init__(self):
+    def __init__(self, resolution = "1"):
         super().__init__()
-        self.unet_model = UNet()
+        assert resolution in ["1", "200"]
+        if resolution == "1":
+            self.unet_model = UNet()
+        elif resolution == "200":
+            self.unet_model = UNet_200()
+        else:
+            raise ValueError("resolution must be 1 or 200")
         self.lr = 1e-3
         self.loss_function = BCEWithLogitsLossIgnore(ignore_index = -1)
 
