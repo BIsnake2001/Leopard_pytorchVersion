@@ -16,10 +16,11 @@ def get_args():
     opt.add_argument("-a","--average", required=True, type=str, help = "path of average dnase bigwig")
     opt.add_argument("-b","--feature", required=True, type=str, help = "path of feature dnase bigwig")
     opt.add_argument("--blacklist", required=True, type=str, help = "path of blacklist")
-    opt.add_argument("--ignore", required=False,default = None, type=str, help = "path of relaxed region")
+    opt.add_argument("--ignore", required=False, type=str, default=None, help = "path of relaxed region")
     opt.add_argument("-l","--label", required=True, type=str, help = "path of label bed (e.g narrowPeak)")
     opt.add_argument("--chrom", required = True, default=[], action='append', help = "chromosome to use")
-
+    
+    opt.add_argument("--bin", required=False, type=int, default=1, help = "bin size")
     opt.add_argument("-n","--num", required=False, type=int, default=10000, help = "number of samples")
     opt.add_argument("-w","--window", required=False, type=int, default=1000, help = "window size")
     opt.add_argument("--seed", required=False, type=int, default=1, help = "random seed")
@@ -78,23 +79,31 @@ def random_region(df_chromsize, chroms, num = 10000, size = 10240, seed = 1024):
         end = start + size
         yield chrom, start, end
 
+def bin_value(bin_arr):
+    if np.sum(bin_arr == 1) >= 100:
+        return 1
+    elif np.sum(bin_arr == -1) >= 100:
+        return -1
+    else:
+        return 0
 
-def process_region(chrom, start, end, df_peak_g, df_blc_g, df_ign_g, bwf_ave, bwf_feature, labels, values_ave, values_feature, regions, dict_chrom_to_id, i):
 
-    if df_ign_g is not None:
+def process_region(chrom, start, end, df_peak_g, df_blc_g, df_ign_g, bwf_ave, bwf_feature, labels, bin_size, window, values_ave, values_feature, regions, dict_chrom_to_id, i):
+    label_long = np.zeros(window)
+    if df_ign_g:
         df_ign_region = df_ign_g.get_group(chrom).assign(
             start = lambda x: np.clip(x['start'] - start,0,args.window),
             end = lambda x: np.clip(x['end'] - start,0,args.window)
         ).query("start < end")
         for _, row in df_ign_region.iterrows():
-            labels[i, row['start']:row['end']] = -1
+            label_long[row['start']:row['end']] = -1
 
     df_region = df_peak_g.get_group(chrom).assign(
         start = lambda x: np.clip(x['start'] - start,0,args.window),
         end = lambda x: np.clip(x['end'] - start,0,args.window)
     ).query("start < end")
     for _, row in df_region.iterrows():
-        labels[i, row['start']:row['end']] = 1
+        label_long[row['start']:row['end']] = 1
         
     df_blc_region = df_blc_g.get_group(chrom).assign(
         start = lambda x: np.clip(x['start'] - start,0,args.window),
@@ -102,7 +111,13 @@ def process_region(chrom, start, end, df_peak_g, df_blc_g, df_ign_g, bwf_ave, bw
     ).query("start < end")
     
     for _, row in df_blc_region.iterrows():
-        labels[i, row['start']:row['end']] = -1
+        label_long[row['start']:row['end']] = -1
+
+    if bin_size > 1:
+        binned_label = label_long.reshape((-1, bin_size))
+        labels[i] = np.array([bin_value(bin_arr) for bin_arr in binned_label])
+    else:
+        labels[i] = label_long
     
     region_ = np.array([dict_chrom_to_id[chrom], start, end])
     regions[i,:] = region_
@@ -125,7 +140,7 @@ if __name__ == "__main__":
     df_blc = pd.read_csv(args.blacklist, sep = '\t', header=None, names=['chrom', 'start', 'end'])
     df_blc_g = df_blc.sort_values(["chrom","start","end"]).groupby("chrom")
 
-    if args.ignore is not None:
+    if args.ignore:
         df_ign = pd.read_csv(args.ignore, sep = '\t', header=None, names=['chrom', 'start', 'end'])
         df_ign_g = df_ign.sort_values(["chrom","start","end"]).groupby("chrom")
     else:
@@ -134,7 +149,7 @@ if __name__ == "__main__":
     bwf_ave = pyBigWig.open(args.average)
     bwf_feature = pyBigWig.open(args.feature)
 
-    labels = np.zeros((args.num, args.window))
+    labels = np.zeros((args.num, int(args.window/args.bin)))
     values_ave = np.zeros((args.num, args.window))
     values_feature = np.zeros((args.num, args.window))
     regions = np.zeros((args.num, 3), dtype = np.int32)
@@ -143,7 +158,7 @@ if __name__ == "__main__":
 
     for i, (chrom, start, end) in tqdm(enumerate(random_region(df_chromsize, args.chrom, args.num, args.window, args.seed)), total = args.num):
         # pool.apply_async(process_region, args=(chrom, start, end, df_peak_g, bwf_ave, bwf_feature, labels, values_ave, values_feature, regions, dict_chrom_to_id, i))
-        process_region(chrom, start, end, df_peak_g, df_blc_g, df_ign_g, bwf_ave, bwf_feature, labels, values_ave, values_feature, regions, dict_chrom_to_id, i)
+        process_region(chrom, start, end, df_peak_g, df_blc_g, df_ign_g, bwf_ave, bwf_feature, labels, args.bin, args.window, values_ave, values_feature, regions, dict_chrom_to_id, i)
 
 
 
@@ -154,7 +169,7 @@ if __name__ == "__main__":
     bwf_feature.close()
 
     with h5py.File(args.opath, "w") as f:
-        f.create_dataset("labels", data = labels, dtype = np.int8, chunks = (32,args.window))
+        f.create_dataset("labels", data = labels, dtype = np.int8, chunks = (32,int(args.window/args.bin)))
         f.create_dataset("values_ave", data = values_ave, dtype=np.float32, chunks = (32,args.window) )
         f.create_dataset("values_feature", data = values_feature, dtype=np.float32, chunks = (32,args.window))
         f.create_dataset("regions", data = np.array(regions), dtype = np.int32, chunks = (32,3))
