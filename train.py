@@ -26,6 +26,7 @@ def get_args():
         help='batch size')
     parser.add_argument('-gpu', '--gpu', default="0", type=str,
         help='gpu to use')
+    parser.add_argument("-s","--size",default = None, type=int,help="window size")
     parser.add_argument("-r","--resolution",default="1",type=str,help="resolution of the data")
     parser.add_argument("--fa",default="/shared/zhangyuxuan/data/annotation/hg38.fa",type=str,help="path to fasta file")
     parser.add_argument("--num_workers", default=4, type=int, help="number of workers")
@@ -61,7 +62,7 @@ if __name__=="__main__":
         max_num=100_000,
         num_workers=args.num_workers,
         )
-    model = LitUNetFT(resolution = args.resolution)
+    model = LitUNetFT(resolution = args.resolution, size = args.size)
     # configure trainer
     callback_checkoint = ModelCheckpoint(save_top_k = 3, monitor = "val_loss", mode = "min", filename = "{epoch}-{step}-{valid_loss:.4f}", save_last = True,every_n_epochs=1,save_weights_only = True)
     trainer = pl.Trainer(

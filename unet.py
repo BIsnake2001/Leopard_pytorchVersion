@@ -77,11 +77,11 @@ class LogTensorValues:
 
 class LitUNetFT(pl.LightningModule):
 
-    def __init__(self, resolution = "1"):
+    def __init__(self, resolution = "1", size = 2048*5):
         super().__init__()
         assert resolution in ["1", "200"]
         if resolution == "1":
-            self.unet_model = UNet()
+            self.unet_model = UNet(size=size)
         elif resolution == "200":
             self.unet_model = UNet_200()
         else:

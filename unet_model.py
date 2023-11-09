@@ -81,7 +81,7 @@ class UNet(pl.LightningModule):
 
         self.up_blocks = nn.ModuleList()
         for i in range(num_blocks):
-            self.up_blocks.append(UCC(num_filters, upfilters[-i], int(num_filters // scale_filter), size_kernel, activation, padding))
+            self.up_blocks.append(UCC(num_filters, upfilters[-i-1], int(num_filters // scale_filter), size_kernel, activation, padding))
             num_filters = int(num_filters // scale_filter)
         self.out_conv = nn.Conv1d(int(num_filters), num_class, 1)
 
