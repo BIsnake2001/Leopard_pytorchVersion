@@ -25,6 +25,7 @@ def get_args():
     
     opt.add_argument("--bin", required=False, type=int, default=1, help = "bin size")
     opt.add_argument("-n","--num", required=False, type=int, default=10000, help = "number of samples")
+    opt.add_argument("-r","--region", required=False, default = "random", help="region to use, random or given regions in bed file (no header, 4 columns: chrom, start, end, index)")
     opt.add_argument("-w","--window", required=False, type=int, default=1000, help = "window size")
     opt.add_argument("--seed", required=False, type=int, default=1, help = "random seed")
     opt.add_argument("-p", "--process", required=False, type=int, default=1, help = "number of processes")
@@ -81,7 +82,34 @@ def random_region(df_chromsize, chroms, num = 10000, size = 10240, seed = 1024):
         chrom = np.random.choice(chroms, p = probs)
         start = np.random.randint(0, df_chromsize[df_chromsize['chrom'] == chrom]['size'].values[0] - size - 10)
         end = start + size
-        yield chrom, start, end
+        yield chrom, start, end, i
+
+def generate_regions(regions,df_chromsize = None, chroms =[], num = 10000, size = 10240, seed = 1024):
+    if regions == "random":
+        return random_region(df_chromsize, chroms, num, size, seed)
+    else:
+        assert os.path.exists(regions), f"region file not found at {regions}"
+        df = pd.read_csv(regions, sep = "\t", names = ["chrom","start","end","ref_index"]).query("chrom in @chroms")
+        center = (df['start'] + df['end'])//2
+        df['start'] = center - size//2
+        df['end'] = center + size//2
+        df = df[df['start'] >= 0]
+        df = df.sample(frac=1, random_state = seed).reset_index(drop=True)
+        for i,row in enumerate(df.itertuples()):
+            if i >= num:
+                break
+            yield row.chrom, row.start, row.end, row.ref_index
+        return None
+        
+def get_total_num(region, chroms, num):
+    if region == "random":
+        return num
+    else:
+        assert os.path.exists(region), f"region file not found at {region}"
+        df = pd.read_csv(region, sep = "\t", names = ["chrom","start","end","ref_index"]).query("chrom in @chroms")
+        return min(num, len(df))
+
+
 
 def bin_value(bin_arr):
     if np.sum(bin_arr == 1) >= 100:
@@ -121,12 +149,21 @@ def process(args):
     labels = np.zeros((args.num, int(args.window/args.bin)), dtype=np.int8)
     values_ave = np.zeros((args.num, args.window), dtype=np.float16)
     values_feature = np.zeros((args.num, args.window), dtype=np.float16)
-    regions = np.zeros((args.num, 3), dtype = np.int32)
+    regions = np.zeros((args.num, 4), dtype = np.int32)
 
 
-    total_num = args.num
+    total_num = get_total_num(args.region, args.chrom, args.num)
     
-    for i, (chrom, start, end) in tqdm(enumerate(random_region(df_chromsize, args.chrom, args.num, args.window, args.seed)), total = total_num):
+    regionos_generated = generate_regions(
+        regions = args.region,
+        df_chromsize = df_chromsize,
+        chroms = args.chrom,
+        num = args.num,
+        size = args.window,
+        seed = args.seed
+
+    )
+    for i, (chrom, start, end, index) in tqdm(enumerate(regionos_generated), total = total_num):
         if args.ignore:
             label_long = dict_ignore[chrom][start:end].copy() * -1
             label_long[dict_labels[chrom][start:end] == 1] = 1
@@ -142,7 +179,7 @@ def process(args):
             labels[i] = np.array([bin_value(bin_arr) for bin_arr in binned_label])
         else:
             labels[i] = label_long
-        regions[i,:] = np.array([dict_chrom_to_id[chrom], start, end])
+        regions[i,:] = np.array([dict_chrom_to_id[chrom], start, end, index])
         # values_ave[i,:] = bwf_ave.values(chrom, start, end, numpy=True)
         # values_feature[i,:] = bwf_feature.values(chrom, start, end, numpy=True)
         values_ave[i,:] = arr_bw_ave[chrom][start:end]
@@ -171,4 +208,4 @@ if __name__ == "__main__":
         f.create_dataset("labels", data = labels, dtype = np.int8, chunks = (32,int(args.window/args.bin)))
         f.create_dataset("values_ave", data = values_ave, dtype=np.float16, chunks = (32,args.window) )
         f.create_dataset("values_feature", data = values_feature, dtype=np.float16, chunks = (32,args.window))
-        f.create_dataset("regions", data = np.array(regions), dtype = np.int32, chunks = (32,3))
+        f.create_dataset("regions", data = np.array(regions), dtype = np.int32, chunks = (32,4))
