@@ -93,7 +93,7 @@ def generate_regions(regions,df_chromsize = None, chroms =[], num = 10000, size 
         center = (df['start'] + df['end'])//2
         df['start'] = center - size//2
         df['end'] = center + size//2
-        df = df[df['start'] >= 0]
+        df = df[df['start'] > 0]
         df = df.sample(frac=1, random_state = seed).reset_index(drop=True)
         for i,row in enumerate(df.itertuples()):
             if i >= num:
@@ -146,13 +146,15 @@ def process(args):
     arr_bw_ave = init_bw_values(args.average, args.chrom)
     arr_bw_feature = init_bw_values(args.feature, args.chrom)
 
-    labels = np.zeros((args.num, int(args.window/args.bin)), dtype=np.int8)
-    values_ave = np.zeros((args.num, args.window), dtype=np.float16)
-    values_feature = np.zeros((args.num, args.window), dtype=np.float16)
-    regions = np.zeros((args.num, 4), dtype = np.int32)
-
 
     total_num = get_total_num(args.region, args.chrom, args.num)
+
+    labels = np.zeros((total_num, int(args.window/args.bin)), dtype=np.int8)
+    values_ave = np.zeros((total_num, args.window), dtype=np.float16)
+    values_feature = np.zeros((total_num, args.window), dtype=np.float16)
+    regions = np.zeros((total_num, 4), dtype = np.int32)
+
+
     
     regionos_generated = generate_regions(
         regions = args.region,
@@ -179,6 +181,8 @@ def process(args):
             labels[i] = np.array([bin_value(bin_arr) for bin_arr in binned_label])
         else:
             labels[i] = label_long
+        if dict_chrom_to_id[chrom] == 0:
+            print(i,chrom, start, end, index)
         regions[i,:] = np.array([dict_chrom_to_id[chrom], start, end, index])
         # values_ave[i,:] = bwf_ave.values(chrom, start, end, numpy=True)
         # values_feature[i,:] = bwf_feature.values(chrom, start, end, numpy=True)

@@ -204,7 +204,7 @@ class UNetDataModule(pl.LightningDataModule):
         return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=self.batch_size)
+        return DataLoader(self.val_dataset, batch_size=256)
 
 # Usage
 # data_module = CustomDataModule(batch_size=32)

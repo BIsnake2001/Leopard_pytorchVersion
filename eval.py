@@ -44,6 +44,7 @@ def valid_args(args):
     
     test_path = os.path.join(args.data, args.factor, args.cellline, args.test)
     assert os.path.exists(test_path), f"train data not found at {test_path}"
+    print(f"test data found at {test_path}")
 
     assert args.batchsize > 0, f"batchsize must be positive, got {args.batchsize}"
 
