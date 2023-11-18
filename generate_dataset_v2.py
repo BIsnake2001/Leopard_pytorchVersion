@@ -12,12 +12,15 @@ import pandas as pd
 import multiprocessing as mp
 import numba
 from collections import namedtuple
+import json
 
 
 def get_args():
     opt = argparse.ArgumentParser(description='generate dataset')
     opt.add_argument("-a","--average", required=True, type=str, help = "path of average dnase bigwig")
     opt.add_argument("-b","--feature", required=True, type=str, help = "path of feature dnase bigwig")
+    opt.add_argument("-c","--cell", required=True, type=str, help = "cell type")
+    opt.add_argument("-e","--exp", required=True, type=str, help = "path of expression dict")
     opt.add_argument("--blacklist", required=True, type=str, help = "path of blacklist")
     opt.add_argument("--ignore", required=False, type=str, default=None, help = "path of relaxed region")
     opt.add_argument("-l","--label", required=True, type=str, help = "path of label bed (e.g narrowPeak)")
@@ -73,6 +76,16 @@ dict_chrom_to_id = {f"chr{i}": i for i in range(1,23)}
 dict_chrom_to_id['chrX'] = 24
 dict_chrom_to_id['chrY'] = 25
     
+
+def parse_exp(exp, cell):
+    with open(exp) as f:
+        dict_exp = json.load(f)
+    if cell == "H1-hESC":
+        cell = "H1"
+    embs = dict_exp[cell]["embedding"]
+    tokens = dict_exp[cell]["tokenID"]
+    return embs, tokens
+
 
 def random_region(df_chromsize, chroms, num = 10000, size = 10240, seed = 1024):
     probs = df_chromsize[df_chromsize['chrom'].isin(chroms)]['fraction'].values
@@ -207,9 +220,11 @@ if __name__ == "__main__":
         dict_ignore = None
 
     labels, values_ave, values_feature, regions = process(args)
+    emb_exp, tokens = parse_exp(args.exp, args.cell)
 
     with h5py.File(args.opath, "w") as f:
         f.create_dataset("labels", data = labels, dtype = np.int8, chunks = (32,int(args.window/args.bin)))
         f.create_dataset("values_ave", data = values_ave, dtype=np.float16, chunks = (32,args.window) )
         f.create_dataset("values_feature", data = values_feature, dtype=np.float16, chunks = (32,args.window))
         f.create_dataset("regions", data = np.array(regions), dtype = np.int32, chunks = (32,4))
+        f.create_dataset("emb_exp", data = emb_exp, dtype = np.float16)
